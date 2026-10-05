@@ -19,6 +19,7 @@ npm run dev
 - SVG and PNG exports
 - Layered OpenRaster (`.ora`) export for GIMP/Krita; open it in GIMP and Save As XCF when a native XCF is required
 - Context-first storyboard generation through Cloudflare Workers AI
+- Manga-author decision rubric that pre-ranks candidates for scenario, pacing, hierarchy, readability, and panel count before the LLM judges a shortlist
 - Emotional layout guidance in a dedicated workspace and new tab
 
 ## Cloudflare Worker API
@@ -39,13 +40,13 @@ npm run build:web
 wrangler deploy
 ```
 
-The Worker uses the `AI` binding with `@cf/meta/llama-3.1-8b-instruct-fast`. If Workers AI is unavailable, storyboard generation returns a deterministic fallback and identifies it in `decisionModel`.
+The Worker uses the `AI` binding with Cloudflare's JSON-mode-compatible `@cf/meta/llama-3.3-70b-instruct-fp8-fast`. A deterministic manga-author rubric extracts the dramatic scenario, scores candidate geometry, and sends only the strongest shortlist to the LLM. If Workers AI is unavailable, the same rubric returns a deterministic fallback and identifies it in `decisionModel`.
 
 ### MCP tools
 
-- `generate_storyboard`: choose the strongest layout candidate and return one structured production prompt per story box
+- `generate_storyboard`: apply the manga-author rubric, let the Cloudflare decision model judge the shortlist, and return structured production prompts
 - `get_emotional_tips`: return emotional composition guidance
-- `select_best_layout`: deterministic candidate selection by requested panel count
+- `select_best_layout`: deterministic ranking by scenario, pacing, hierarchy, readability, and panel count
 
 MCP clients should send `Accept: application/json, text/event-stream` on `/mcp` requests.
 
@@ -70,4 +71,4 @@ Push a `v*` tag to run the release workflow. GitHub Actions publishes the compil
 
 - Worker: https://manga-layout.jstdlee.workers.dev
 - Repository: https://github.com/jstdlee/manga-layout
-- Release: https://github.com/jstdlee/manga-layout/releases/tag/v0.1.2
+- Release: https://github.com/jstdlee/manga-layout/releases/tag/v0.1.3

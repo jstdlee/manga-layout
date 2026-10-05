@@ -61,7 +61,7 @@ const COPY = {
     png: 'PNG保存 (縦2400px)',
     ora: 'ORA保存 (GIMPレイヤー)',
     storyboardTitle: 'LLMでネームを即生成',
-    storyboardDesc: '世界・章・ plot・key event を渡すと、最適な割りを選び、各コマの制作プロンプトまで組み立てます。',
+    storyboardDesc: '世界・章・プロット・キーイベントを渡すと、マンガ編集者の基準で割りを先に順位付けし、Cloudflareの決定モデルが最終候補を選びます。',
     world: '世界設定',
     chapter: '章',
     plot: 'キー・プロット',
@@ -71,12 +71,15 @@ const COPY = {
     style: '画面のスタイル',
     desiredPanels: '希望コマ数',
     promptTemplate: 'プロンプト指示',
-    promptHelp: 'AIへの指示を自由に調整できます。出力はJSONとして整形されます。',
+    promptHelp: 'モデルへの指示を調整できます。テンポ・大小の差・読みやすさ・シナリオ適合度で候補を先に評価してからLLMが決定します。',
     generate: 'ネームを生成',
     generating: '生成中…',
     decision: 'Cloudflare decision model',
     summary: 'シーケンス要約',
     reasoning: '割りを選んだ理由',
+    scenario: 'シナリオ基準',
+    confidence: '確信度',
+    ranked: '候補順位',
     storyBox: 'ストーリーボックス',
     prompt: '制作プロンプト',
     beat: 'ビート',
@@ -116,7 +119,7 @@ const COPY = {
     png: 'Save PNG (2400px tall)',
     ora: 'Save ORA (GIMP layers)',
     storyboardTitle: 'Generate a storyboard with an LLM',
-    storyboardDesc: 'Describe the world, chapter, plot, and key events. The decision model selects the strongest layout and writes production prompts for every story box.',
+    storyboardDesc: 'Describe the world, chapter, plot, and key events. A manga-editor rubric pre-ranks layouts, then the Cloudflare decision model judges the shortlist.',
     world: 'World / chapter setting',
     chapter: 'Chapter',
     plot: 'Key plot',
@@ -126,12 +129,15 @@ const COPY = {
     style: 'Visual style',
     desiredPanels: 'Target panels',
     promptTemplate: 'Prompt instructions',
-    promptHelp: 'Tune the instructions sent to the model. The response is normalized into structured JSON.',
+    promptHelp: 'Tune the instructions sent to the model. Layouts are pre-ranked for pacing, hierarchy, readability, and scenario fit before the LLM makes the final choice.',
     generate: 'Generate storyboard',
     generating: 'Generating…',
     decision: 'Cloudflare decision model',
     summary: 'Sequence summary',
     reasoning: 'Layout reasoning',
+    scenario: 'Scenario rubric',
+    confidence: 'Confidence',
+    ranked: 'Ranked candidates',
     storyBox: 'Story box',
     prompt: 'Production prompt',
     beat: 'Beat',
@@ -171,7 +177,7 @@ const COPY = {
     png: '保存 PNG（高度2400px）',
     ora: '保存 ORA（GIMP图层）',
     storyboardTitle: '用 LLM 立即生成分镜',
-    storyboardDesc: '填写世界、章节、剧情和关键事件，决策模型会选择最合适的布局，并为每个故事格生成制作提示词。',
+    storyboardDesc: '填写世界、章节、剧情和关键事件，先用漫画编辑标准对布局候选排序，再由 Cloudflare 决策模型判断最合适的方案。',
     world: '世界 / 章节设定',
     chapter: '章节',
     plot: '关键剧情',
@@ -181,12 +187,15 @@ const COPY = {
     style: '画面风格',
     desiredPanels: '目标格数',
     promptTemplate: '提示词指令',
-    promptHelp: '可以自由调整发送给模型的指令，返回内容会被整理为结构化 JSON。',
+    promptHelp: '可以自由调整发送给模型的指令。候选会先按节奏、大小层级、可读性和场景适配度评分，再由 LLM 做最终选择。',
     generate: '生成分镜',
     generating: '生成中…',
     decision: 'Cloudflare 决策模型',
     summary: '故事概览',
     reasoning: '布局选择理由',
+    scenario: '场景基准',
+    confidence: '置信度',
+    ranked: '候选排名',
     storyBox: '故事格',
     prompt: '制作提示词',
     beat: '节拍',
@@ -735,12 +744,43 @@ const galleryItems = computed(() => layouts.value.map((layout) => ({
   markup: svgMarkup(layout, { lineW: settings.lineW, guide: settings.guide, numbers: settings.numbers, dialogue: settings.dialogueBoxes }),
 })))
 
+function polygonArea(points) {
+  return Math.abs(points.reduce((sum, point, index) => {
+    const next = points[(index + 1) % points.length]
+    return sum + point[0] * next[1] - next[0] * point[1]
+  }, 0) / 2)
+}
+
+function layoutDecisionFeatures(layout) {
+  const areas = layout.panels.map((panel) => polygonArea(panel.pts))
+  const totalArea = areas.reduce((sum, area) => sum + area, 0) || 1
+  const shares = areas.map((area) => area / totalArea)
+  const tilts = [
+    ...(layout.genome?.rowTilt || []),
+    ...(layout.genome?.rows || []).flatMap((row) => row.colTilt || []),
+  ]
+  const nestedPanels = (layout.genome?.rows || []).reduce((sum, row) => sum + row.panels.filter((panel) => panel.nest).length, 0)
+  const bleedEdges = (layout.genome?.rows || []).reduce((sum, row) => sum + row.panels.reduce((panelSum, panel) => panelSum + ['bT', 'bB', 'bR', 'bL'].filter((edge) => panel[edge]).length, 0), 0)
+  return {
+    rowCount: layout.genome?.rows?.length || 1,
+    largestPanelShare: Math.max(...shares, 0),
+    smallestPanelShare: Math.min(...shares),
+    firstPanelShare: shares[0] || 0,
+    lastPanelShare: shares[shares.length - 1] || 0,
+    hierarchy: Math.max(...shares, 0) - Math.min(...shares, 0),
+    tilt: Math.min(1, tilts.reduce((sum, value) => sum + Math.abs(value), 0) / Math.max(1, tilts.length)),
+    nestedPanels,
+    bleedEdges,
+  }
+}
+
 const storyCandidates = computed(() => layouts.value.map((layout, index) => ({
   index,
   panelCount: layout.panels.length,
   seed: layout.seed,
   ratio: layout.width / layout.height,
   mode: mode.value === 'mutate' ? 'mutation' : settings.preset || 'standard',
+  ...layoutDecisionFeatures(layout),
 })))
 
 function t(key) {
@@ -984,7 +1024,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <div><span class="eyebrow">DECISION OUTPUT</span><h3>{{ storyboardResult.summary }}</h3><p>{{ storyboardResult.reasoning }}</p></div>
           <button class="btn sub" type="button" @click="chooseStoryboardLayout">{{ language === 'en' ? 'Open selected layout' : language === 'zh' ? '打开选中布局' : '選択した割りを開く' }} ↗</button>
         </div>
-        <div class="story-meta"><span class="mono">{{ storyboardResult.decisionModel }}</span><span>{{ storyboardResult.storyBoxes?.length }} {{ language === 'en' ? 'boxes' : language === 'zh' ? '格' : 'コマ' }}</span></div>
+-        <div class="story-meta"><span class="mono">{{ storyboardResult.decisionModel }}</span><span>{{ storyboardResult.storyBoxes?.length }} {{ language === 'en' ? 'boxes' : language === 'zh' ? '格' : 'コマ' }}</span></div>
++        <div class="story-meta"><span class="mono">{{ storyboardResult.decisionModel }}</span><span>{{ t('scenario') }}: {{ storyboardResult.scenario }}</span><span>{{ t('confidence') }}: {{ Math.round((storyboardResult.confidence || 0) * 100) }}%</span><span>{{ storyboardResult.storyBoxes?.length }} {{ language === 'en' ? 'boxes' : language === 'zh' ? '格' : 'コマ' }}</span></div>
++        <div v-if="storyboardResult.rankedLayouts?.length" class="ranked-layouts"><span class="eyebrow">{{ t('ranked') }}</span><span v-for="candidate in storyboardResult.rankedLayouts" :key="candidate.index" class="ranked-chip">#{{ candidate.index + 1 }} · {{ Math.round(candidate.fit * 100) }}% · {{ candidate.reason }}</span></div>
         <article v-for="box in storyboardResult.storyBoxes" :key="box.panelNumber" class="story-box">
           <div class="box-index mono">{{ String(box.panelNumber).padStart(2, '0') }}</div>
           <div class="box-body"><h4>{{ t('storyBox') }} {{ box.panelNumber }} · {{ box.beat }}</h4><p><b>{{ t('emotion') }}:</b> {{ box.emotion }} · <b>{{ t('camera') }}:</b> {{ box.camera }} · <b>{{ t('background') }}:</b> {{ box.background }}</p><p>{{ box.action }}</p><p v-if="box.dialogue" class="dialogue-copy">“{{ box.dialogue }}”</p><label class="prompt-label">{{ t('prompt') }}<textarea :value="box.prompt" rows="4" readonly></textarea></label></div>

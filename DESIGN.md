@@ -46,14 +46,14 @@ Cool paper / production utility: a pale blue-gray workspace, white page sheets, 
 
 - `AI storyboard` is a context-first form. World, chapter, plot, events, setting, characters, style, panel target, dialogue density, temperature, max tokens, and an editable prompt instruction are visible before generation.
 - `Emotional direction` is a quieter read/operate workspace with a small set of reusable emotional beats and an optional new-tab launch.
-- Story results are structured as a decision summary plus one production prompt per story box.
+- Story results are structured as a scenario decision summary, confidence, ranked candidates, and one production prompt per story box.
 
 ## Export and agent grammar
 
 - Dialogue-box overlays are optional and deterministic by seed; styles include speech, whisper, shout, thought, caption, and mixed.
 - ORA is labeled as OpenRaster, not XCF. It carries a background, one layer per panel, optional guide, and optional dialogue layers.
 - Cloudflare Worker endpoints expose health, storyboard generation, emotional tips, and `/mcp`. The MCP server advertises tools for storyboard generation, emotional guidance, and layout selection.
-- Cloudflare Workers AI is the decision model when the binding is available; local and Worker fallbacks are explicit in the result.
+- Cloudflare Workers AI receives a deterministic manga-author rubric: scenario classification plus candidate geometry scores for pacing, hierarchy, readability, and panel count. It judges a shortlist, while the same rubric remains the fallback when AI is unavailable.
 
 ## Desktop
 

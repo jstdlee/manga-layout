@@ -28,7 +28,7 @@ Users work in a browser or MyGo desktop client while planning manga pages, story
 
 ## Capabilities and Constraints
 
-The tool mirrors the reference site's visible behavior and appearance: layout style presets, page size presets, row-count presets, randomized panel traits, bundle generation, seed display, reading-order numbering, inner-frame guides, dialogue-box varieties, previous/next navigation, mutation from the current layout, SVG/PNG/ORA export, multilingual UI in Japanese, English, and Simplified Chinese, AI storyboard generation, emotional layout guidance, and agent-facing REST/MCP endpoints. Cloudflare Workers AI is optional at runtime; deterministic local fallbacks preserve the core workflow when it is unavailable. MyGo builds the same frontend into desktop clients.
+The tool mirrors the reference site's visible behavior and appearance: layout style presets, page size presets, row-count presets, randomized panel traits, bundle generation, seed display, reading-order numbering, inner-frame guides, dialogue-box varieties, previous/next navigation, mutation from the current layout, SVG/PNG/ORA export, multilingual UI in Japanese, English, and Simplified Chinese, AI storyboard generation, emotional layout guidance, and agent-facing REST/MCP endpoints. The storyboard decision path uses a manga-author rubric to classify dramatic scenario and score layout geometry before Cloudflare Workers AI judges a shortlist; the same rubric provides the deterministic fallback. MyGo builds the same frontend into desktop clients.
 
 ## Brand Commitments
 

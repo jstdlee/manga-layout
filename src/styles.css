@@ -196,6 +196,9 @@ footer .credit a { color: var(--accent); }
 .result-summary h3 { max-width: 70ch; margin: 4px 0 6px; }
 .result-summary p { max-width: 70ch; margin: 0; color: var(--muted); }
 .story-meta { display: flex; justify-content: space-between; padding: 8px 2px; color: var(--muted); font-size: 11px; }
+.ranked-layouts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 2px 12px; color: var(--muted); font-size: 10px; }
+.ranked-layouts .eyebrow { margin-right: 4px; }
+.ranked-chip { padding: 5px 7px; border: 1px solid var(--line-soft); border-radius: 999px; background: var(--surface); }
 .story-box { display: grid; grid-template-columns: 52px 1fr; gap: 14px; padding: 14px 0; border-top: 1px solid var(--line-soft); }
 .box-index { color: var(--accent); font-size: 20px; font-weight: 700; }
 .box-body h4 { margin: 0 0 6px; font-size: 15px; }
