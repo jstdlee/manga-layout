@@ -70,4 +70,4 @@ Push a `v*` tag to run the release workflow. GitHub Actions publishes the compil
 
 - Worker: https://manga-layout.jstdlee.workers.dev
 - Repository: https://github.com/jstdlee/manga-layout
-- Release: https://github.com/jstdlee/manga-layout/releases/tag/v0.1.1
+- Release: https://github.com/jstdlee/manga-layout/releases/tag/v0.1.2
