@@ -1,0 +1,27 @@
+{
+  "name": "manga-layout",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:web": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "build:web": "vite build",
+    "preview": "vite preview",
+    "mygo:dev": "npx mygo-cli dev",
+    "mygo:build": "npx mygo-cli build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "agents": "^0.26.0",
+    "fflate": "^0.8.3",
+    "vue": "^3.5.13",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.3",
+    "mygo-cli": "^0.2.7",
+    "vite": "^6.2.0"
+  }
+}
