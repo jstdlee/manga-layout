@@ -80,6 +80,13 @@ const COPY = {
     scenario: 'シナリオ基準',
     confidence: '確信度',
     ranked: '候補順位',
+    decisionRounds: '判定ラウンド数',
+    decisionThreshold: '品質しきい値',
+    trace: 'JEV判定ログ',
+    round: 'ラウンド',
+    deficits: '不足点',
+    mutations: '次の修正',
+    silentPanel: '無音のコマ — 吹き出しなし。',
     storyBox: 'ストーリーボックス',
     prompt: '制作プロンプト',
     beat: 'ビート',
@@ -138,6 +145,13 @@ const COPY = {
     scenario: 'Scenario rubric',
     confidence: 'Confidence',
     ranked: 'Ranked candidates',
+    decisionRounds: 'Decision rounds',
+    decisionThreshold: 'Quality threshold',
+    trace: 'JEV decision trace',
+    round: 'Round',
+    deficits: 'Deficits',
+    mutations: 'Next mutations',
+    silentPanel: 'Silent panel — no bubbles.',
     storyBox: 'Story box',
     prompt: 'Production prompt',
     beat: 'Beat',
@@ -196,6 +210,13 @@ const COPY = {
     scenario: '场景基准',
     confidence: '置信度',
     ranked: '候选排名',
+    decisionRounds: '决策轮数',
+    decisionThreshold: '质量阈值',
+    trace: 'JEV 决策记录',
+    round: '轮次',
+    deficits: '缺陷',
+    mutations: '下一步修改',
+    silentPanel: '无声格 — 无气泡。',
     storyBox: '故事格',
     prompt: '制作提示词',
     beat: '节拍',
@@ -224,12 +245,15 @@ const storyboard = reactive({
   style: '',
   desiredPanels: 6,
   dialogueDensity: 'balanced',
-  temperature: 0.55,
+  temperature: 0.35,
   maxTokens: 1800,
-  model: '@cf/meta/llama-3.1-8b-instruct-fast',
-  promptTemplate: 'Choose the strongest layout for the emotional rhythm, then write a precise production prompt for every panel. Preserve visual continuity and never invent facts outside the context.',
+  decisionRounds: 2,
+  decisionThreshold: 0.82,
+  model: '@cf/zai-org/glm-5.3-flash',
+  promptTemplate: 'Judge the layout for manga pacing, reading flow, emotional emphasis, dialogue space, and production safety before writing the panel prompts. Preserve visual continuity and never invent facts outside the context.',
 })
 const storyboardResult = ref(null)
+const storyBubblePlan = ref([])
 const storyboardLoading = ref(false)
 const storyboardError = ref('')
 const tipEmotion = ref('tension')
@@ -505,27 +529,87 @@ function readConfig() {
   }
 }
 
+function escapeXml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character])
+}
+
+function bubbleTextLines(text, maxChars = 14) {
+  const source = String(text || '').trim()
+  if (!source) return []
+  const chars = Array.from(source)
+  const lines = []
+  for (let index = 0; index < chars.length; index += maxChars) lines.push(chars.slice(index, index + maxChars).join('').trim())
+  return lines.filter(Boolean).slice(0, 5)
+}
+
+function panelBounds(panel) {
+  const xs = panel.pts.map((point) => point[0])
+  const ys = panel.pts.map((point) => point[1])
+  return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) }
+}
+
+function plannedBubbleMarkup(panel, bubble, bubbleIndex) {
+  const bounds = panelBounds(panel)
+  const panelWidth = bounds.maxX - bounds.minX
+  const panelHeight = bounds.maxY - bounds.minY
+  const width = Math.max(72, Math.min(panelWidth * 0.7, 188))
+  const lines = bubbleTextLines(bubble.text, Math.max(8, Math.floor(width / 12)))
+  if (!lines.length) return ''
+  const height = Math.max(38, Math.min(panelHeight * 0.28, 28 + lines.length * 18))
+  const positions = {
+    'top-left': [bounds.minX + panelWidth * 0.28, bounds.minY + panelHeight * 0.2],
+    'top-right': [bounds.maxX - panelWidth * 0.28, bounds.minY + panelHeight * 0.2],
+    center: [(bounds.minX + bounds.maxX) / 2, bounds.minY + panelHeight * 0.48],
+    'bottom-left': [bounds.minX + panelWidth * 0.28, bounds.maxY - panelHeight * 0.2],
+    'bottom-right': [bounds.maxX - panelWidth * 0.28, bounds.maxY - panelHeight * 0.2],
+  }
+  const [cx, cy] = positions[bubble.placement] || positions['top-right']
+  const stroke = bubble.emphasis >= 0.72 ? '#B52B37' : '#1E78C8'
+  const strokeWidth = bubble.emphasis >= 0.72 ? 3.5 : 2.5
+  const rx = width / 2
+  const ry = height / 2
+  let shape = ''
+  if (bubble.type === 'caption' || bubble.type === 'broadcast') {
+    shape = `<rect x="${(cx - rx).toFixed(1)}" y="${(cy - ry).toFixed(1)}" width="${width.toFixed(1)}" height="${height.toFixed(1)}" rx="${bubble.type === 'broadcast' ? 2 : 6}" fill="#FFF" fill-opacity=".92" stroke="${stroke}" stroke-width="${strokeWidth}"${bubble.type === 'broadcast' ? ' stroke-dasharray="6 4"' : ''}/>`
+  } else if (bubble.type === 'shout' || bubble.type === 'sfx') {
+    const points = Array.from({ length: 16 }, (_, index) => {
+      const angle = (Math.PI * 2 * index) / 16
+      const radiusX = index % 2 ? rx * .84 : rx
+      const radiusY = index % 2 ? ry * .84 : ry
+      return `${(cx + Math.cos(angle) * radiusX).toFixed(1)},${(cy + Math.sin(angle) * radiusY).toFixed(1)}`
+    }).join(' ')
+    shape = `<polygon points="${points}" fill="#FFF" fill-opacity=".92" stroke="${stroke}" stroke-width="${strokeWidth}"/>`
+  } else {
+    const dash = bubble.type === 'whisper' ? ' stroke-dasharray="7 5"' : ''
+    shape = `<ellipse cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" rx="${rx.toFixed(1)}" ry="${ry.toFixed(1)}" fill="#FFF" fill-opacity=".92" stroke="${stroke}" stroke-width="${strokeWidth}"${dash}/>`
+    if (bubble.type === 'thought') shape += `<circle cx="${(cx - rx * .42).toFixed(1)}" cy="${(cy + ry * 1.25).toFixed(1)}" r="5" fill="#FFF" stroke="${stroke}" stroke-width="2"/><circle cx="${(cx - rx * .55).toFixed(1)}" cy="${(cy + ry * 1.52).toFixed(1)}" r="3" fill="#FFF" stroke="${stroke}" stroke-width="2"/>`
+    else if (bubble.tail !== 'none') shape += `<polygon points="${(cx - rx * .18).toFixed(1)},${(cy + ry * .7).toFixed(1)} ${(cx + rx * .02).toFixed(1)},${(cy + ry * .58).toFixed(1)} ${(cx - rx * .28).toFixed(1)},${(cy + ry * 1.1).toFixed(1)}" fill="#FFF" stroke="${stroke}" stroke-width="2"/>`
+  }
+  const fontSize = Math.max(10, Math.min(18, width / Math.max(10, lines.reduce((max, line) => Math.max(max, line.length), 1) * .7)))
+  const text = `<text x="${cx.toFixed(1)}" y="${(cy - ((lines.length - 1) * fontSize * .55)).toFixed(1)}" text-anchor="middle" font-family="Arial, sans-serif" font-size="${fontSize.toFixed(1)}" font-weight="${bubble.emphasis >= 0.72 ? '700' : '500'}" fill="#111">${lines.map((line, index) => `<tspan x="${cx.toFixed(1)}" dy="${index ? (fontSize * 1.15).toFixed(1) : '0'}">${escapeXml(line)}</tspan>`).join('')}</text>`
+  return `<g data-bubble="${bubbleIndex}">${shape}${text}</g>`
+}
+
 function dialogueMarkup(layout, options = {}) {
   if (!options.dialogue) return ''
+  if (Array.isArray(options.bubbles) && options.bubbles.length) {
+    return options.bubbles.map((bubble, index) => {
+      const panel = layout.panels[Math.max(0, Math.min(layout.panels.length - 1, Number(bubble.panelNumber) - 1))]
+      return panel ? plannedBubbleMarkup(panel, bubble, index) : ''
+    }).join('')
+  }
   const density = Math.min(100, Math.max(0, options.dialogueDensity ?? settings.dialogueDensity))
   if (!density) return ''
   const random = mulberry32(strHash(`${layout.seed}:dialogue`))
   let markup = ''
   layout.panels.forEach((panel) => {
     if (random() * 100 > density) return
-    const xs = panel.pts.map((point) => point[0])
-    const ys = panel.pts.map((point) => point[1])
-    const minX = Math.min(...xs)
-    const maxX = Math.max(...xs)
-    const minY = Math.min(...ys)
-    const maxY = Math.max(...ys)
+    const { minX, maxX, minY, maxY } = panelBounds(panel)
     const width = Math.max(68, Math.min(150, (maxX - minX) * 0.58))
     const height = Math.max(40, Math.min(76, (maxY - minY) * 0.18))
     const cx = (minX + maxX) / 2
     const cy = minY + (maxY - minY) * (0.2 + random() * 0.28)
-    const style = options.dialogueStyle === 'mixed'
-      ? ['speech', 'whisper', 'shout', 'thought', 'caption'][Math.floor(random() * 5)]
-      : options.dialogueStyle
+    const style = options.dialogueStyle === 'mixed' ? ['speech', 'whisper', 'shout', 'thought', 'caption'][Math.floor(random() * 5)] : options.dialogueStyle
     const stroke = '#1E78C8'
     if (style === 'caption') {
       markup += `<rect x="${(cx - width / 2).toFixed(1)}" y="${(cy - height / 2).toFixed(1)}" width="${width.toFixed(1)}" height="${height.toFixed(1)}" rx="6" fill="#FFF" fill-opacity=".88" stroke="${stroke}" stroke-width="3"/>`
@@ -561,7 +645,7 @@ function svgMarkup(layout, options = {}) {
     const points = panel.pts.map((point) => `${point[0].toFixed(1)},${point[1].toFixed(1)}`).join(' ')
     svg += `<polygon points="${points}" fill="#ffffff" stroke="#101417" stroke-width="${options.lineW ?? settings.lineW}" stroke-linejoin="miter"/>`
   })
-  svg += dialogueMarkup(layout, { dialogue, dialogueStyle: options.dialogueStyle ?? settings.dialogueStyle, dialogueDensity: options.dialogueDensity ?? settings.dialogueDensity })
+  svg += dialogueMarkup(layout, { dialogue, bubbles: options.bubbles, dialogueStyle: options.dialogueStyle ?? settings.dialogueStyle, dialogueDensity: options.dialogueDensity ?? settings.dialogueDensity })
   if (options.guide) {
     svg += `<rect x="${layout.inner.x0}" y="${layout.inner.y0}" width="${layout.inner.x1 - layout.inner.x0}" height="${layout.inner.y1 - layout.inner.y0}" fill="none" stroke="#38a5e0" stroke-width="2" stroke-dasharray="8 6" opacity="0.7"/>`
   }
@@ -605,15 +689,15 @@ async function downloadOra() {
   const width = Math.round(layout.width * scale)
   const height = 2400
   const layers = []
-  if (settings.dialogueBoxes) layers.push({ name: 'Dialogue boxes', svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${layout.width} ${layout.height}">${dialogueMarkup(layout, { dialogue: true, dialogueStyle: settings.dialogueStyle, dialogueDensity: settings.dialogueDensity })}</svg>` })
+  if (settings.dialogueBoxes) layers.push({ name: 'Dialogue boxes', svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${layout.width} ${layout.height}">${dialogueMarkup(layout, { dialogue: true, bubbles: activeBubbles.value, dialogueStyle: settings.dialogueStyle, dialogueDensity: settings.dialogueDensity })}</svg>` })
   if (settings.guide) layers.push({ name: 'Inner guide', svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${layout.width} ${layout.height}"><rect x="${layout.inner.x0}" y="${layout.inner.y0}" width="${layout.inner.x1 - layout.inner.x0}" height="${layout.inner.y1 - layout.inner.y0}" fill="none" stroke="#38a5e0" stroke-width="2" stroke-dasharray="8 6" opacity=".7"/></svg>` })
   for (let index = 0; index < layout.panels.length; index += 1) layers.push({ name: `Panel ${String(index + 1).padStart(2, '0')}`, svg: panelLayerSvg(layout, index, settings.lineW) })
   layers.push({ name: 'Background', svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${layout.width} ${layout.height}"><rect width="${layout.width}" height="${layout.height}" fill="#fff"/></svg>` })
   const pngLayers = []
   for (const layer of layers) pngLayers.push({ ...layer, png: await renderSvgToPng(layer.svg, width, height) })
-  const merged = await renderSvgToPng(svgMarkup(layout, { lineW: settings.lineW, numbers: settings.numbers, dialogue: settings.dialogueBoxes }), width, height)
+  const merged = await renderSvgToPng(svgMarkup(layout, { lineW: settings.lineW, numbers: settings.numbers, dialogue: settings.dialogueBoxes, bubbles: activeBubbles.value }), width, height)
   const thumbnailWidth = Math.min(256, width)
-  const thumbnail = await renderSvgToPng(svgMarkup(layout, { lineW: settings.lineW, numbers: false, dialogue: settings.dialogueBoxes }), thumbnailWidth, Math.round(thumbnailWidth * height / width))
+  const thumbnail = await renderSvgToPng(svgMarkup(layout, { lineW: settings.lineW, numbers: false, dialogue: settings.dialogueBoxes, bubbles: activeBubbles.value }), thumbnailWidth, Math.round(thumbnailWidth * height / width))
   const stackChildren = pngLayers.map((layer, index) => `<layer name="${layer.name.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" src="data/${String(index).padStart(3, '0')}.png" x="0" y="0" visibility="visible" opacity="1"/>`).join('')
   const stack = `<?xml version="1.0" encoding="UTF-8"?><image version="0.0.1" w="${width}" h="${height}"><stack name="Manga Layout">${stackChildren}</stack></image>`
   const archive = zipSync({
@@ -711,13 +795,13 @@ function downloadBlob(blob, name) {
 function downloadSvg() {
   const layout = activeLayout.value
   if (!layout) return
-  downloadBlob(new Blob([svgMarkup(layout, { lineW: settings.lineW, dialogue: settings.dialogueBoxes })], { type: 'image/svg+xml' }), filename(layout, 'svg'))
+  downloadBlob(new Blob([svgMarkup(layout, { lineW: settings.lineW, dialogue: settings.dialogueBoxes, bubbles: activeBubbles.value })], { type: 'image/svg+xml' }), filename(layout, 'svg'))
 }
 
 function downloadPng() {
   const layout = activeLayout.value
   if (!layout) return
-  const url = URL.createObjectURL(new Blob([svgMarkup(layout, { lineW: settings.lineW, dialogue: settings.dialogueBoxes })], { type: 'image/svg+xml' }))
+  const url = URL.createObjectURL(new Blob([svgMarkup(layout, { lineW: settings.lineW, dialogue: settings.dialogueBoxes, bubbles: activeBubbles.value })], { type: 'image/svg+xml' }))
   const image = new Image()
   image.onload = () => {
     const scale = 2400 / layout.height
@@ -734,6 +818,9 @@ function downloadPng() {
 }
 
 const activeLayout = computed(() => layouts.value[currentIndex.value])
+const storySelectedSeed = computed(() => storyboardResult.value?.selectedSeed || '')
+const bubblesFor = (layout) => (layout && storyBubblePlan.value.length && layout.seed === storySelectedSeed.value ? storyBubblePlan.value : [])
+const activeBubbles = computed(() => bubblesFor(activeLayout.value))
 const currentMeta = computed(() => {
   const layout = activeLayout.value
   if (!layout) return ''
@@ -741,7 +828,7 @@ const currentMeta = computed(() => {
 })
 const galleryItems = computed(() => layouts.value.map((layout) => ({
   ...layout,
-  markup: svgMarkup(layout, { lineW: settings.lineW, guide: settings.guide, numbers: settings.numbers, dialogue: settings.dialogueBoxes }),
+  markup: svgMarkup(layout, { lineW: settings.lineW, guide: settings.guide, numbers: settings.numbers, dialogue: settings.dialogueBoxes, bubbles: bubblesFor(layout) }),
 })))
 
 function polygonArea(points) {
@@ -815,6 +902,12 @@ function localStoryFallback() {
     selectedLayoutIndex: selected?.index || 0,
     selectedSeed: selected?.seed || '',
     decisionModel: 'browser-fallback',
+    scenario: 'local',
+    confidence: 0.5,
+    decisionRounds: 0,
+    threshold: storyboard.decisionThreshold,
+    decisionTrace: [],
+    rankedLayouts: [],
     reasoning: 'The Worker API was unavailable, so the closest panel-count layout was selected locally.',
     summary: `${storyboard.title || 'Untitled sequence'}: ${storyboard.plot || 'Build a clear visual turn.'}`,
     storyBoxes: Array.from({ length: count }, (_, index) => ({
@@ -827,6 +920,14 @@ function localStoryFallback() {
       background: storyboard.setting || 'Keep the established setting visible.',
       camera: index % 3 === 0 ? 'wide, eye-level' : index % 3 === 1 ? 'medium, over-shoulder' : 'tight close-up',
       prompt: `Manga panel ${index + 1}; ${storyboard.characters || 'the point-of-view character'}; ${storyboard.setting || 'the established setting'}; ${storyboard.style || 'clear manga staging'}; preserve continuity, silhouettes, right-to-left reading order, and no text rendering artifacts.`,
+      bubbles: storyboard.dialogueDensity === 'none' || index % 3 === 2 ? [] : [{
+        type: index % 3 === 1 ? 'thought' : 'speech',
+        voice: index % 3 === 1 ? 'monologue' : 'dialogue',
+        text: index % 3 === 1 ? 'What am I even doing here?' : 'A concise line that clarifies intent.',
+        placement: index % 2 ? 'top-left' : 'top-right',
+        emphasis: 0.4,
+        tail: index % 3 === 1 ? 'none' : 'character',
+      }],
     })),
   }
 }
@@ -842,8 +943,10 @@ async function generateStoryboard() {
     })
     if (!response.ok) throw new Error(`Worker responded ${response.status}`)
     storyboardResult.value = await response.json()
+    storyBubblePlan.value = (storyboardResult.value.storyBoxes || []).flatMap((box) => (box.bubbles || []).map((bubble) => ({ ...bubble, panelNumber: box.panelNumber })))
   } catch (error) {
     storyboardResult.value = localStoryFallback()
+    storyBubblePlan.value = []
     storyboardError.value = `${error.message}. ${t('noAi')}`
   } finally {
     storyboardLoading.value = false
@@ -876,6 +979,8 @@ async function getTips() {
 
 function chooseStoryboardLayout() {
   if (Number.isInteger(storyboardResult.value?.selectedLayoutIndex)) {
+    storyBubblePlan.value = (storyboardResult.value.storyBoxes || []).flatMap((box) => (box.bubbles || []).map((bubble) => ({ ...bubble, panelNumber: box.panelNumber })))
+    settings.dialogueBoxes = storyBubblePlan.value.length > 0
     setWorkspace('layout')
     openViewer(storyboardResult.value.selectedLayoutIndex)
   }
@@ -1012,6 +1117,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         <label class="field">{{ t('style') }}<textarea v-model="storyboard.style" rows="3"></textarea></label>
         <label class="field compact">{{ t('desiredPanels') }}<input v-model.number="storyboard.desiredPanels" type="number" min="3" max="24" /></label>
         <label class="field compact">{{ t('dialogueDensity') }}<select v-model="storyboard.dialogueDensity"><option value="none">None</option><option value="light">Light</option><option value="balanced">Balanced</option><option value="dense">Dense</option></select></label>
+        <label class="field compact">{{ t('decisionRounds') }}<input v-model.number="storyboard.decisionRounds" type="number" min="1" max="3" /></label>
+        <label class="field compact">{{ t('decisionThreshold') }}<input v-model.number="storyboard.decisionThreshold" type="number" min="0.6" max="0.98" step=".02" /></label>
         <label class="field compact">Temperature <input v-model.number="storyboard.temperature" type="number" min="0" max="1" step=".05" /></label>
         <label class="field compact">Max tokens <input v-model.number="storyboard.maxTokens" type="number" min="600" max="3200" step="100" /></label>
         <label class="field wide">{{ t('promptTemplate') }}<textarea v-model="storyboard.promptTemplate" rows="4"></textarea><small>{{ t('promptHelp') }}</small></label>
@@ -1025,11 +1132,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <button class="btn sub" type="button" @click="chooseStoryboardLayout">{{ language === 'en' ? 'Open selected layout' : language === 'zh' ? '打开选中布局' : '選択した割りを開く' }} ↗</button>
         </div>
 -        <div class="story-meta"><span class="mono">{{ storyboardResult.decisionModel }}</span><span>{{ storyboardResult.storyBoxes?.length }} {{ language === 'en' ? 'boxes' : language === 'zh' ? '格' : 'コマ' }}</span></div>
-+        <div class="story-meta"><span class="mono">{{ storyboardResult.decisionModel }}</span><span>{{ t('scenario') }}: {{ storyboardResult.scenario }}</span><span>{{ t('confidence') }}: {{ Math.round((storyboardResult.confidence || 0) * 100) }}%</span><span>{{ storyboardResult.storyBoxes?.length }} {{ language === 'en' ? 'boxes' : language === 'zh' ? '格' : 'コマ' }}</span></div>
-+        <div v-if="storyboardResult.rankedLayouts?.length" class="ranked-layouts"><span class="eyebrow">{{ t('ranked') }}</span><span v-for="candidate in storyboardResult.rankedLayouts" :key="candidate.index" class="ranked-chip">#{{ candidate.index + 1 }} · {{ Math.round(candidate.fit * 100) }}% · {{ candidate.reason }}</span></div>
+<div class="story-meta"><span class="mono">{{ storyboardResult.decisionModel }}</span><span>{{ t('scenario') }}: {{ storyboardResult.scenario }}</span><span>{{ t('confidence') }}: {{ Math.round((storyboardResult.confidence || 0) * 100) }}%</span><span>{{ t('decisionRounds') }}: {{ storyboardResult.decisionRounds || 0 }} / {{ storyboard.decisionRounds }}</span><span>{{ t('decisionThreshold') }}: {{ Math.round((storyboardResult.threshold || 0) * 100) }}%</span><span>{{ storyboardResult.storyBoxes?.length }} {{ language === 'en' ? 'boxes' : language === 'zh' ? '格' : 'コマ' }}</span></div>
+<div v-if="storyboardResult.decisionTrace?.length" class="decision-trace"><span class="eyebrow">{{ t('trace') }}</span><article v-for="step in storyboardResult.decisionTrace" :key="step.round" class="trace-step"><b>{{ t('round') }} {{ step.round }}</b><span class="mono">{{ step.status }} · {{ Math.round((step.quality || 0) * 100) }}%</span><p>{{ step.reasoning }}</p><p v-if="step.deficits?.length" class="note">{{ t('deficits') }}: {{ step.deficits.join('; ') }}</p><p v-if="step.mutations?.length" class="note">{{ t('mutations') }}: {{ step.mutations.join('; ') }}</p></article></div>
+<div v-if="storyboardResult.rankedLayouts?.length" class="ranked-layouts"><span class="eyebrow">{{ t('ranked') }}</span><span v-for="candidate in storyboardResult.rankedLayouts" :key="candidate.index" class="ranked-chip">#{{ candidate.index + 1 }} · {{ Math.round(candidate.fit * 100) }}% · {{ candidate.reason }}</span></div>
         <article v-for="box in storyboardResult.storyBoxes" :key="box.panelNumber" class="story-box">
           <div class="box-index mono">{{ String(box.panelNumber).padStart(2, '0') }}</div>
-          <div class="box-body"><h4>{{ t('storyBox') }} {{ box.panelNumber }} · {{ box.beat }}</h4><p><b>{{ t('emotion') }}:</b> {{ box.emotion }} · <b>{{ t('camera') }}:</b> {{ box.camera }} · <b>{{ t('background') }}:</b> {{ box.background }}</p><p>{{ box.action }}</p><p v-if="box.dialogue" class="dialogue-copy">“{{ box.dialogue }}”</p><label class="prompt-label">{{ t('prompt') }}<textarea :value="box.prompt" rows="4" readonly></textarea></label></div>
+          <div class="box-body"><h4>{{ t('storyBox') }} {{ box.panelNumber }} · {{ box.beat }}</h4><p><b>{{ t('emotion') }}:</b> {{ box.emotion }} · <b>{{ t('camera') }}:</b> {{ box.camera }} · <b>{{ t('background') }}:</b> {{ box.background }}</p><p>{{ box.action }}</p><p v-if="box.dialogue" class="dialogue-copy">“{{ box.dialogue }}”</p><ul v-if="box.bubbles?.length" class="bubble-list"><li v-for="(bubble, bubbleIndex) in box.bubbles" :key="`${box.panelNumber}-${bubbleIndex}`"><span class="bubble-tag mono">{{ bubble.type }}/{{ bubble.voice }}</span><span>{{ bubble.text }}</span><span class="note">{{ bubble.placement }} · {{ Math.round((bubble.emphasis || 0) * 100) }}%</span></li></ul><p v-else class="note">{{ t('silentPanel') }}</p><label class="prompt-label">{{ t('prompt') }}<textarea :value="box.prompt" rows="4" readonly></textarea></label></div>
         </article>
       </section>
     </section>
@@ -1044,7 +1152,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
   <dialog ref="viewer" class="viewer" :aria-label="t('preview')" @click.self="closeViewer">
     <div class="vhead"><span class="meta mono">{{ currentMeta }}</span><span class="sp"></span><button class="ghost close" type="button" :aria-label="language === 'en' ? 'Close' : language === 'zh' ? '关闭' : '閉じる'" @click="closeViewer">✕</button></div>
-    <div v-if="activeLayout" class="vpage" :style="{ '--r': (activeLayout.width / activeLayout.height).toFixed(4) }"><div v-html="svgMarkup(activeLayout, { lineW: settings.lineW, numbers: settings.numbers, dialogue: settings.dialogueBoxes })"></div></div>
+    <div v-if="activeLayout" class="vpage" :style="{ '--r': (activeLayout.width / activeLayout.height).toFixed(4) }"><div v-html="svgMarkup(activeLayout, { lineW: settings.lineW, numbers: settings.numbers, dialogue: settings.dialogueBoxes, bubbles: activeBubbles })"></div></div>
     <div class="vfoot"><button class="ghost" type="button" @click="fillViewer(-1)">◀</button><span class="sp"></span><button class="btn sub" type="button" @click="enterMutate">🧬 {{ t('mutate') }}</button><button class="btn" type="button" @click="downloadSvg">{{ t('svg') }}</button><button class="btn" type="button" @click="downloadPng">{{ t('png') }}</button><button class="btn" type="button" @click="downloadOra">{{ t('ora') }}</button><span class="sp"></span><button class="ghost" type="button" @click="fillViewer(1)">▶</button></div>
   </dialog>
 </template>

@@ -199,6 +199,12 @@ footer .credit a { color: var(--accent); }
 .ranked-layouts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 2px 12px; color: var(--muted); font-size: 10px; }
 .ranked-layouts .eyebrow { margin-right: 4px; }
 .ranked-chip { padding: 5px 7px; border: 1px solid var(--line-soft); border-radius: 999px; background: var(--surface); }
+.decision-trace { display: grid; gap: 8px; padding: 10px 2px 14px; }
+.trace-step { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--surface); }
+.trace-step p { margin: 0; color: var(--muted); font-size: 12px; }
+.bubble-list { display: grid; gap: 6px; margin: 8px 0; padding: 0; list-style: none; }
+.bubble-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; padding: 6px 10px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--surface); font-size: 12px; }
+.bubble-tag { padding: 2px 6px; border-radius: 999px; background: #e8f2fc; color: #1E78C8; font-size: 10px; }
 .story-box { display: grid; grid-template-columns: 52px 1fr; gap: 14px; padding: 14px 0; border-top: 1px solid var(--line-soft); }
 .box-index { color: var(--accent); font-size: 20px; font-weight: 700; }
 .box-body h4 { margin: 0 0 6px; font-size: 15px; }

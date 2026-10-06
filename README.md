@@ -18,8 +18,10 @@ npm run dev
 - Speech, whisper, shout, thought, caption, and mixed dialogue-box overlays
 - SVG and PNG exports
 - Layered OpenRaster (`.ora`) export for GIMP/Krita; open it in GIMP and Save As XCF when a native XCF is required
-- Context-first storyboard generation through Cloudflare Workers AI
 - Manga-author decision rubric that pre-ranks candidates for scenario, pacing, hierarchy, readability, and panel count before the LLM judges a shortlist
+- Multi-round CF-JEV decision loop: the GLM judge scores narrative, pacing, reading flow, hierarchy, emotion, and production quality each round, reports deficits and targeted mutations, and iterates until the quality threshold passes or the round budget ends
+- Scenario-aware bubble planning: the storyboard writer inserts speech, thought/monologue, whisper, shout, broadcast, caption, and SFX bubbles per panel, rendered into the selected layout and exported to SVG/PNG/ORA
+- Token-gated access: every page and API requires a shared access token (`ACCESS_TOKEN` Worker secret); agents may send `Authorization: Bearer <token>` instead of the login cookie
 - Emotional layout guidance in a dedicated workspace and new tab
 
 ## Cloudflare Worker API
@@ -31,6 +33,7 @@ The deployed Worker serves the frontend and these agent-facing endpoints:
 - `POST /api/emotional-tips`
 - `GET /api/mcp/tools`
 - `GET /.well-known/mcp.json`
+- `GET /login` and `POST /auth/login` (form or JSON `{"token": …}`), `GET|POST /auth/logout`
 - `POST /mcp` — stateless Streamable HTTP MCP transport
 
 Deploy with:
@@ -40,7 +43,9 @@ npm run build:web
 wrangler deploy
 ```
 
-The Worker uses the `AI` binding with Cloudflare's JSON-mode-compatible `@cf/meta/llama-3.3-70b-instruct-fp8-fast`. A deterministic manga-author rubric extracts the dramatic scenario, scores candidate geometry, and sends only the strongest shortlist to the LLM. If Workers AI is unavailable, the same rubric returns a deterministic fallback and identifies it in `decisionModel`.
+The Worker uses the `AI` binding with `@cf/zai-org/glm-5.3-flash` (JSON-schema output). A deterministic manga-author rubric extracts the dramatic scenario, scores candidate geometry, and a CF-JEV judge runs up to 3 decision rounds before the storyboard writer produces prompts and bubbles. If Workers AI is unavailable, the same rubric returns a deterministic fallback and identifies it in `decisionModel`.
+
+Set the access token with `wrangler secret put ACCESS_TOKEN` (or `.dev.vars` locally). Without it the Worker refuses to authenticate; keep the token out of git.
 
 ### MCP tools
 
