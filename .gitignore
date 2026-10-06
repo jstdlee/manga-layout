@@ -7,4 +7,8 @@ build/
 .env.*
 !.env.example
 .dev.vars
+seagull-comic/site/
+seagull-comic/panels/
+seagull-comic/page-*.png
+seagull-comic/page-*.svg
 enhanced-downloads/
